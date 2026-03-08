@@ -56,9 +56,7 @@ services:
 
   # ── SmartBed API server ───────────────────────────────────────────────────────
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: pxmpkeen/smartbed:latest
     container_name: smartbed-api
     restart: unless-stopped
     depends_on:
