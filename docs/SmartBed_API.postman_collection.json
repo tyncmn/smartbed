@@ -1,0 +1,889 @@
+{
+  "info": {
+    "_postman_id": "smartbed-api-collection-v1",
+    "name": "SmartBed API",
+    "description": "# SmartBed Backend API\n\nProduction-grade REST API for the SmartBed sleep and health monitoring platform.\n\n## Quick Start\n1. Set `base_url` variable to your server (default: `http://localhost:8080`)\n2. Call **POST /auth/login** with admin credentials\n3. Copy the `access_token` from the response — Postman auto-sets it via the login test script\n4. All authenticated routes automatically use the `{{access_token}}` variable\n\n## Roles\n| Role | Access |\n|---|---|\n| `admin` | Full access |\n| `doctor` | Protocols, device commands, clinical read |\n| `caregiver` | Clinical read, ack alerts |\n| `operator` | Vitals ingestion |\n| `patient` | Own profile |\n\n## Base URL\n`{{base_url}}/api/v1`",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8080", "type": "string" },
+    { "key": "access_token", "value": "", "type": "string" },
+    { "key": "user_id", "value": "", "type": "string" },
+    { "key": "protocol_id", "value": "", "type": "string" },
+    { "key": "device_id", "value": "", "type": "string" },
+    { "key": "alert_id", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "🔐 Auth",
+      "description": "Authentication endpoints. Login returns a JWT access token that is automatically stored and used by all other requests.",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    pm.collectionVariables.set('access_token', json.access_token);",
+                  "    pm.collectionVariables.set('user_id', json.user_id);",
+                  "    pm.test('Login successful', () => pm.expect(json.access_token).to.not.be.empty);",
+                  "    pm.test('Role present', () => pm.expect(json.role).to.not.be.empty);",
+                  "    console.log('✅ Token saved. Role:', json.role);",
+                  "} else {",
+                  "    pm.test('Login failed', () => pm.expect(pm.response.code).to.equal(200));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@smartbed.local\",\n  \"password\": \"Admin@2024!\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "login"]
+            },
+            "description": "Authenticates a user and returns a JWT access token + refresh token.\n\n**Roles:** Public (no auth required)\n\n**Test accounts after seeding:**\n- `admin@smartbed.local` / `Admin@2024!`\n\n**Auto-sets:** `{{access_token}}` and `{{user_id}}` collection variables"
+          },
+          "response": [
+            {
+              "name": "200 OK – Successful Login",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"access_token\": \"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...\",\n  \"refresh_token\": \"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...\",\n  \"expires_at\": \"2026-03-08T13:15:00Z\",\n  \"user_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  \"role\": \"admin\"\n}"
+            },
+            {
+              "name": "401 Unauthorized – Wrong password",
+              "status": "Unauthorized",
+              "code": 401,
+              "body": "{\n  \"error\": \"invalid credentials\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Liveness probe for load balancers and Kubernetes readiness checks.\n\n**Roles:** Public"
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"service\": \"smartbed\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "📡 Vitals Ingestion",
+      "description": "Receives biometric data payloads from Apple Watch / iPhone bridge. Normalises into time-series, deduplicates, and triggers async risk evaluation.",
+      "item": [
+        {
+          "name": "Ingest Vitals (Full Payload)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Accepted (202)', () => pm.expect(pm.response.code).to.equal(202));",
+                  "if (pm.response.code === 202) {",
+                  "    const json = pm.response.json();",
+                  "    pm.test('ingestion_id present', () => pm.expect(json.IngestionID).to.not.be.undefined);",
+                  "    console.log('Ingested vital events:', json.VitalEventIDs?.length);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"device_id\": \"watch_001\",\n  \"timestamp\": \"2026-03-08T01:30:00Z\",\n  \"metrics\": {\n    \"heart_rate\": 72,\n    \"spo2\": 95,\n    \"stress_level\": 48,\n    \"sleep_duration_minutes\": 210,\n    \"skin_temperature\": 36.6,\n    \"movement_score\": 0.72,\n    \"sleep_stage\": \"light\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/vitals/ingest",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "vitals", "ingest"]
+            },
+            "description": "Main ingestion endpoint called by the Apple Watch bridge every N seconds.\n\n**Roles:** `operator`, `admin`\n\n**What happens internally:**\n1. Raw payload stored in `raw_ingestion_log`\n2. Each metric normalized into `vital_events` (idempotent — duplicate device+timestamp+metric is silently ignored)\n3. Async risk evaluation triggered per metric\n4. If HR + movement high → composite sleep disturbance evaluated\n5. Alerts created and notifications routed based on risk level\n\n**Metrics (all optional):**\n| Field | Unit | Clinical bounds |\n|---|---|---|\n| `heart_rate` | bpm | 60–100 (varies by age/sex) |\n| `spo2` | % | 95–100 (< 92 = HIGH risk) |\n| `stress_level` | 0–100 score | 0–40 |\n| `sleep_duration_minutes` | min | 360–540 |\n| `skin_temperature` | °C | 34.5–37.5 |\n| `movement_score` | 0–1 float | 0–0.4 |\n| `sleep_stage` | `light`/`deep`/`rem`/`awake` | — |"
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "status": "Accepted",
+              "code": 202,
+              "body": "{\n  \"IngestionID\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n  \"VitalEventIDs\": [\n    \"11111111-1111-1111-1111-111111111111\",\n    \"22222222-2222-2222-2222-222222222222\",\n    \"33333333-3333-3333-3333-333333333333\"\n  ],\n  \"Duplicates\": 0\n}"
+            },
+            {
+              "name": "202 Accepted – Partial (with duplicate)",
+              "status": "Accepted",
+              "code": 202,
+              "body": "{\n  \"IngestionID\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n  \"VitalEventIDs\": [\n    \"11111111-1111-1111-1111-111111111111\"\n  ],\n  \"Duplicates\": 2\n}"
+            },
+            {
+              "name": "422 Unprocessable – Invalid payload",
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "body": "{\n  \"error\": \"invalid user_id: invalid UUID length: 7\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Ingest Vitals (Critical Values – SpO2 Low)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"device_id\": \"watch_001\",\n  \"timestamp\": \"2026-03-08T02:15:00Z\",\n  \"metrics\": {\n    \"heart_rate\": 110,\n    \"spo2\": 89,\n    \"skin_temperature\": 38.5,\n    \"movement_score\": 0.85\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/vitals/ingest",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "vitals", "ingest"]
+            },
+            "description": "Simulates a critical event:\n- SpO₂ = 89% → **CRITICAL** (hard threshold < 90%)\n- Heart rate = 110 bpm → elevated\n- Temperature = 38.5°C → elevated (> 38°C = HIGH risk)\n- Movement = 0.85 → very high\n\n**Expected result:** 3 alerts created (low_oxygen CRITICAL, abnormal_heart_rate, elevated_temperature), caregiver + doctor + emergency contacts notified."
+          },
+          "response": []
+        },
+        {
+          "name": "Ingest Vitals (Disturbed Sleep)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"device_id\": \"watch_001\",\n  \"timestamp\": \"2026-03-08T03:00:00Z\",\n  \"metrics\": {\n    \"heart_rate\": 88,\n    \"movement_score\": 0.78,\n    \"sleep_stage\": \"light\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/vitals/ingest",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "vitals", "ingest"]
+            },
+            "description": "Simulates disturbed sleep:\n- Heart rate elevated during sleep\n- Movement score high\n\n**Expected:** `disturbed_sleep` alert (composite rule triggers when HR > 110% of normal AND movement > 75% of max bound)"
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "🚨 Alerts",
+      "description": "Health alerts generated by the risk engine. Alerts are auto-created when metric deviations exceed thresholds and are routed to caregivers/doctors based on severity.",
+      "item": [
+        {
+          "name": "Get All Alerts for User",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.expect(pm.response.code).to.equal(200));",
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    if (json.alerts && json.alerts.length > 0) {",
+                  "        pm.collectionVariables.set('alert_id', json.alerts[0].id);",
+                  "        console.log('First alert ID saved:', json.alerts[0].id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/alerts?user_id={{user_id}}&limit=50&offset=0",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "alerts"],
+              "query": [
+                {
+                  "key": "user_id",
+                  "value": "{{user_id}}",
+                  "description": "Patient UUID (required)"
+                },
+                {
+                  "key": "unread",
+                  "value": "false",
+                  "description": "Filter unread only (true/false)"
+                },
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "description": "Page size (default 50)"
+                },
+                {
+                  "key": "offset",
+                  "value": "0",
+                  "description": "Pagination offset"
+                }
+              ]
+            },
+            "description": "Returns paginated list of alerts for a patient.\n\n**Roles:** `admin`, `doctor`, `caregiver`\n\n**Alert types:**\n| Type | Trigger |\n|---|---|\n| `abnormal_heart_rate` | HR outside age/sex range |\n| `low_oxygen` | SpO₂ < 95% (critical < 90%) |\n| `elevated_temperature` | Skin temp > 38°C |\n| `disturbed_sleep` | High HR + high movement |\n| `high_risk_health_event` | Risk 10–20% |\n| `critical_health_event` | Risk > 20% |\n\n**Risk levels:** `normal` → `mild` → `high` → `critical`"
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"alerts\": [\n    {\n      \"id\": \"aaaa1111-bbbb-cccc-dddd-eeeeeeeeeeee\",\n      \"user_id\": \"{{user_id}}\",\n      \"alert_type\": \"low_oxygen\",\n      \"risk_level\": \"critical\",\n      \"message\": \"spo2: 89.00 (below normal, risk=critical, deviation=-9.00)\",\n      \"metric_type\": \"spo2\",\n      \"metric_value\": 89,\n      \"is_acknowledged\": false,\n      \"acknowledged_by\": null,\n      \"acknowledged_at\": null,\n      \"created_at\": \"2026-03-08T02:15:01Z\"\n    },\n    {\n      \"id\": \"bbbb2222-cccc-dddd-eeee-ffffffffffff\",\n      \"user_id\": \"{{user_id}}\",\n      \"alert_type\": \"abnormal_heart_rate\",\n      \"risk_level\": \"high\",\n      \"message\": \"heart_rate: 110.00 (above normal, risk=high, deviation=37.00)\",\n      \"metric_type\": \"heart_rate\",\n      \"metric_value\": 110,\n      \"is_acknowledged\": false,\n      \"acknowledged_by\": null,\n      \"acknowledged_at\": null,\n      \"created_at\": \"2026-03-08T02:15:01Z\"\n    }\n  ],\n  \"count\": 2\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Unread Alerts Only",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/alerts?user_id={{user_id}}&unread=true&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "alerts"],
+              "query": [
+                { "key": "user_id", "value": "{{user_id}}" },
+                { "key": "unread", "value": "true" },
+                { "key": "limit", "value": "10" }
+              ]
+            },
+            "description": "Filter to only unacknowledged alerts. Useful for the dashboard notification badge count."
+          },
+          "response": []
+        },
+        {
+          "name": "Acknowledge an Alert",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/alerts/{{alert_id}}/acknowledge",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "alerts", "{{alert_id}}", "acknowledge"]
+            },
+            "description": "Marks an alert as acknowledged by the currently authenticated user.\n\n**Roles:** `admin`, `doctor`, `caregiver`\n\nSets `is_acknowledged=true`, records `acknowledged_by` (user UUID) and `acknowledged_at` timestamp."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"message\": \"alert acknowledged\"\n}"
+            },
+            {
+              "name": "400 Bad Request – Invalid UUID",
+              "status": "Bad Request",
+              "code": 400,
+              "body": "{\n  \"error\": \"invalid alert id\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "📊 Dashboard",
+      "description": "Read-only endpoints for the web dashboard and mobile caregiver app. Returns aggregated health status, sleep summaries, and risk histories.",
+      "item": [
+        {
+          "name": "Get User Current Status",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{user_id}}/current-status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "{{user_id}}", "current-status"]
+            },
+            "description": "Returns a snapshot of the patient's current health status:\n- Unread alert count\n- Last 10 unread alerts\n- 7-day sleep summary\n\n**Roles:** `admin`, `doctor`, `caregiver`\n\n**Ideal for:** Dashboard home card, caregiver app top-of-screen status widget."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"user_id\": \"{{user_id}}\",\n  \"unread_alerts\": 2,\n  \"recent_alerts\": [\n    {\n      \"id\": \"aaaa1111-...\",\n      \"alert_type\": \"low_oxygen\",\n      \"risk_level\": \"critical\",\n      \"message\": \"spo2: 89.00 (below normal, risk=critical)\",\n      \"created_at\": \"2026-03-08T02:15:01Z\"\n    }\n  ],\n  \"sleep_7d_summary\": {\n    \"user_id\": \"{{user_id}}\",\n    \"avg_quality_score\": 72.4,\n    \"avg_duration_minutes\": 418.5,\n    \"total_nights\": 6,\n    \"disturbed_nights\": 2,\n    \"period_days\": 7\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Sleep Summary (7 days)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{user_id}}/sleep-summary?days=7",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "{{user_id}}", "sleep-summary"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "7",
+                  "description": "Lookback window: 7 or 30"
+                }
+              ]
+            },
+            "description": "Returns aggregated sleep statistics over the last N days.\n\n**Roles:** `admin`, `doctor`, `caregiver`\n\n**Score explanation:**\n- **Quality Score**: 0–100 composite (duration + HR stability + SpO₂ stability + disturbances + movement)\n- **Disturbed nights**: sessions with score < 60 OR ≥ 3 disturbances\n\n**Query params:**\n- `days`: `7` (default) or `30`"
+          },
+          "response": [
+            {
+              "name": "200 OK – 7-day summary",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"user_id\": \"{{user_id}}\",\n  \"avg_quality_score\": 68.3,\n  \"avg_duration_minutes\": 395,\n  \"total_nights\": 7,\n  \"disturbed_nights\": 3,\n  \"period_days\": 7\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Sleep Summary (30 days)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{user_id}}/sleep-summary?days=30",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "{{user_id}}", "sleep-summary"],
+              "query": [{ "key": "days", "value": "30" }]
+            },
+            "description": "30-day sleep trend. Useful for the monthly report card and doctor consultation view."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "🏥 Protocols",
+      "description": "Doctor-configured medication and response workflow management. Protocols define what happens when a patient's vitals trigger specific conditions.\n\n⚠️ **Safety note:** Only doctors can create protocols. The `send_dispenser_command` outcome requires multiple safety checks before it can execute.",
+      "item": [
+        {
+          "name": "Create Protocol (notify only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const json = pm.response.json();",
+                  "    pm.collectionVariables.set('protocol_id', json.id);",
+                  "    pm.test('Protocol created', () => pm.expect(json.state).to.equal('draft'));",
+                  "    console.log('Protocol ID saved:', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"patient_id\": \"{{user_id}}\",\n  \"name\": \"Nocturnal Hypoxia Watch\",\n  \"description\": \"Notify caregiver if SpO2 drops below 93% during sleep hours\",\n  \"trigger_outcome\": \"notify_only\",\n  \"rules\": [\n    {\n      \"metric_type\": \"spo2\",\n      \"operator\": \"lt\",\n      \"threshold_value\": 93,\n      \"risk_level\": \"high\"\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/protocols",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "protocols"]
+            },
+            "description": "Creates a new protocol in **draft** state.\n\n**Roles:** `doctor` only\n\n**Trigger outcomes:**\n| Value | Behaviour |\n|---|---|\n| `notify_only` | Sends notification, no device action |\n| `suggest_action` | Creates a dashboard suggestion card |\n| `require_manual_approval` | Creates a pending approval record — must be manually approved before any action |\n| `send_dispenser_command` | Issues command to IoT dispenser **only after** all 5 safety gates pass |\n\n**State machine:** `draft` → `approved` → `active` → `suspended`\n\n**Rules operators:** `gt`, `lt`, `gte`, `lte`, `eq`\n\n**Metric types:** `heart_rate`, `spo2`, `skin_temperature`, `stress_level`, `movement_score`, `sleep_duration`, `respiration`, `blood_pressure_systolic`, `blood_pressure_diastolic`"
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "status": "Created",
+              "code": 201,
+              "body": "{\n  \"id\": \"cccc3333-dddd-eeee-ffff-000000000000\",\n  \"patient_id\": \"{{user_id}}\",\n  \"doctor_id\": \"dddd4444-eeee-ffff-0000-111111111111\",\n  \"name\": \"Nocturnal Hypoxia Watch\",\n  \"description\": \"Notify caregiver if SpO2 drops below 93% during sleep hours\",\n  \"state\": \"draft\",\n  \"trigger_outcome\": \"notify_only\",\n  \"doctor_approved\": false,\n  \"is_locked\": false,\n  \"created_at\": \"2026-03-08T22:45:00Z\",\n  \"updated_at\": \"2026-03-08T22:45:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Create Protocol (dispenser command)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"patient_id\": \"{{user_id}}\",\n  \"name\": \"Critical HR Dispenser Protocol\",\n  \"description\": \"Trigger dispenser if heart rate exceeds 120 bpm and risk is critical — requires approval\",\n  \"trigger_outcome\": \"send_dispenser_command\",\n  \"rules\": [\n    {\n      \"metric_type\": \"heart_rate\",\n      \"operator\": \"gt\",\n      \"threshold_value\": 120,\n      \"risk_level\": \"critical\"\n    },\n    {\n      \"metric_type\": \"spo2\",\n      \"operator\": \"lt\",\n      \"threshold_value\": 90,\n      \"risk_level\": \"critical\"\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/protocols",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "protocols"]
+            },
+            "description": "Creates a dispenser-triggering protocol.\n\n⚠️ **Safety gates** that MUST all pass before a dispenser command is issued:\n1. Protocol state = `active`\n2. `doctor_approved` = `true`\n3. `is_locked` = `false`\n4. All protocol rules match the incoming risk evaluation\n5. A real online dispenser device must be registered\n\nProtocol starts in `draft` — must be advanced through the state machine."
+          },
+          "response": []
+        },
+        {
+          "name": "Approve Protocol (draft → approved)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"state\": \"approved\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/protocols/{{protocol_id}}/state",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "protocols", "{{protocol_id}}", "state"]
+            },
+            "description": "Advances protocol from **draft → approved**.\n\n**Roles:** Doctor who created the protocol only\n\nThis sets `doctor_approved = true` on the protocol. Only the owning doctor may approve."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"message\": \"state updated\"\n}"
+            },
+            {
+              "name": "400 Bad Request – Invalid transition",
+              "status": "Bad Request",
+              "code": 400,
+              "body": "{\n  \"error\": \"invalid state transition: active → approved\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Activate Protocol (approved → active)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"state\": \"active\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/protocols/{{protocol_id}}/state",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "protocols", "{{protocol_id}}", "state"]
+            },
+            "description": "Activates an approved protocol. Once active, the risk engine will evaluate incoming vitals against its rules."
+          },
+          "response": []
+        },
+        {
+          "name": "Suspend Protocol (active → suspended)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"state\": \"suspended\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/protocols/{{protocol_id}}/state",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "protocols", "{{protocol_id}}", "state"]
+            },
+            "description": "Immediately suspends an active protocol. No further dispenser commands or triggered notifications will fire until reactivated."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "🤖 IoT Device Commands",
+      "description": "MQTT-backed dispenser device command lifecycle management.\n\n**Command lifecycle:**\n```\nqueued → published → acknowledged → executed\n                  ↘ failed\nqueued → timeout (after ACK_TIMEOUT_SECONDS)\n```\n\nCommands are published to MQTT topic: `devices/{device_code}/commands`\nDevice ACKs come back on: `devices/{device_code}/ack`",
+      "item": [
+        {
+          "name": "Execute Device Command",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 202) {",
+                  "    const json = pm.response.json();",
+                  "    pm.test('Command queued/published', () => {",
+                  "        pm.expect(['queued','published']).to.include(json.Status);",
+                  "    });",
+                  "    console.log('Command ID:', json.ID, '| Status:', json.Status);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"command_type\": \"dispense\",\n  \"payload\": {\n    \"medication\": \"melatonin_3mg\",\n    \"dose_units\": 1,\n    \"notes\": \"Doctor-ordered dispense for patient comfort\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/device-commands/{{device_id}}/execute",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "v1",
+                "device-commands",
+                "{{device_id}}",
+                "execute"
+              ]
+            },
+            "description": "Issues a command to a registered dispenser device. Published via MQTT.\n\n**Roles:** `doctor`, `admin`\n\n**Command types:**\n| Type | Description |\n|---|---|\n| `dispense` | Trigger physical dispensing of configured medication |\n| `hold` | Suppress next planned dispense |\n| `reset` | Reset the dispenser state machine |\n| `check_status` | Ping device for a status heartbeat |\n\n**MQTT flow:**\n1. Command stored as `queued`\n2. Published to `devices/{device_code}/commands` → status: `published`\n3. Device ACKs on `devices/{device_code}/ack` → status: `acknowledged` → `executed` or `failed`\n4. If no ACK within `ACK_TIMEOUT_SECONDS` → status: `timeout`\n\n⚠️ Will fail with 400 if device is offline or not found."
+          },
+          "response": [
+            {
+              "name": "202 Accepted – Published",
+              "status": "Accepted",
+              "code": 202,
+              "body": "{\n  \"ID\": \"eeee5555-ffff-0000-1111-222222222222\",\n  \"DeviceID\": \"{{device_id}}\",\n  \"ProtocolID\": null,\n  \"IssuedBy\": \"{{user_id}}\",\n  \"CommandType\": \"dispense\",\n  \"Payload\": \"{\\\"medication\\\":\\\"melatonin_3mg\\\",\\\"dose_units\\\":1}\",\n  \"Status\": \"published\",\n  \"PublishedAt\": \"2026-03-08T22:45:10Z\",\n  \"AcknowledgedAt\": null,\n  \"ExecutedAt\": null,\n  \"TimeoutAt\": \"2026-03-08T22:45:40Z\",\n  \"CreatedAt\": \"2026-03-08T22:45:10Z\"\n}"
+            },
+            {
+              "name": "400 Bad Request – Device offline",
+              "status": "Bad Request",
+              "code": 400,
+              "body": "{\n  \"error\": \"device watch_001 is not online\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Device Status",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/devices/{{device_id}}/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "devices", "{{device_id}}", "status"]
+            },
+            "description": "Returns device registration info and its most recent command with lifecycle status.\n\n**Roles:** `admin`, `doctor`\n\n**Useful for:** Device dashboard card, real-time command tracking widget."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"device\": {\n    \"id\": \"{{device_id}}\",\n    \"patient_id\": \"{{user_id}}\",\n    \"device_code\": \"disp_001\",\n    \"model\": \"SmartPill Pro v2\",\n    \"firmware_ver\": \"2.1.4\",\n    \"is_online\": true,\n    \"last_seen_at\": \"2026-03-08T22:30:00Z\"\n  },\n  \"latest_command\": {\n    \"id\": \"eeee5555-ffff-0000-1111-222222222222\",\n    \"command_type\": \"dispense\",\n    \"status\": \"executed\",\n    \"published_at\": \"2026-03-08T22:45:10Z\",\n    \"executed_at\": \"2026-03-08T22:45:12Z\"\n  }\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"error\": \"device not found: sql: no rows in result set\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Simulate Device ACK (MQTT – Reference Only)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "This is NOT an HTTP endpoint — it is documentation for the MQTT ACK message format.\n\n**Topic:** `devices/{device_code}/ack`\n**Direction:** Device → Server\n\n**ACK Payload (JSON):**\n```json\n{\n  \"command_id\": \"eeee5555-ffff-0000-1111-222222222222\",\n  \"device_id\": \"disp_001\",\n  \"status\": \"executed\",\n  \"message\": \"Dose dispensed successfully\",\n  \"timestamp\": \"2026-03-08T22:45:12Z\"\n}\n```\n\n**Status values:** `executed` | `failed`\n\n**Testing with MQTT Explorer or mosquitto_pub:**\n```bash\nmosquitto_pub -h localhost -p 1883 \\\n  -t 'devices/disp_001/ack' \\\n  -m '{\"command_id\":\"COMMAND_UUID\",\"device_id\":\"disp_001\",\"status\":\"executed\",\"message\":\"OK\",\"timestamp\":\"2026-03-08T22:45:12Z\"}'\n```"
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "📐 Risk Engine – Reference",
+      "description": "Documentation folder showing how the risk engine classifies incoming vitals. Not HTTP endpoints — these are example payloads with annotated risk calculations for frontend developers.\n\n**Risk formula:**\n```\nDeviation      = Current_Value − Normal_Value\nRisk_Pct       = |Deviation / Normal_Value| × 100\nRisk_Level     = normal (0–5%) | mild (5–10%) | high (10–20%) | critical (>20%)\n```\n\n**Hard overrides (bypass percentage rule):**\n- SpO₂ < 90% → always `critical`\n- SpO₂ < 92% → always `high`\n- SpO₂ < 95% → at least `mild`\n- Temp ≥ 39°C → always `critical`\n- Temp ≥ 38°C → at least `high`\n\n**Composite disturbance rule:**\nIF HeartRate > 110% of normal AND MovementScore > 75% of max THEN `disturbed_sleep` alert",
+      "item": [
+        {
+          "name": "Risk Calc Example – SpO2 89% (CRITICAL)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "**Example calculation for SpO₂ = 89%**\n\nAssume patient: age 35, male → normal SpO₂ = 98%\n\n```\nDeviation    = 89 - 98        = -9\nRisk_Pct     = |−9 / 98| × 100 = 9.18%\nClassified   = mild (by %)     → OVERRIDDEN\nHard rule    = SpO₂ < 90      → CRITICAL\nFinal level  = CRITICAL\n```\n\n**Alert created:** `low_oxygen` / `critical`\n**Notifications:** caregiver + doctor + all emergency contacts"
+          },
+          "response": []
+        },
+        {
+          "name": "Risk Calc Example – Heart Rate 110 bpm (HIGH)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "**Example calculation for HR = 110 bpm**\n\nAssume patient: age 35, male → normal HR = 71 bpm\n\n```\nDeviation    = 110 - 71        = +39\nRisk_Pct     = |39 / 71| × 100 = 54.9%\nClassified   = CRITICAL (>20%)\n```\n\n**Alert:** `abnormal_heart_rate` / `critical`\n**Notifications:** caregiver + doctor + emergency contacts"
+          },
+          "response": []
+        },
+        {
+          "name": "Risk Calc Example – Normal Sleep (no alert)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "**Example: HR = 68 bpm (normal)**\n\nAssume patient: age 35, male → normal HR = 71 bpm\n\n```\nDeviation    = 68 - 71        = -3\nRisk_Pct     = |−3 / 71| × 100 = 4.22%\nClassified   = NORMAL (<5%)\n```\n\n**No alert created.** Vital event stored for historical trend only."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "🛠 Admin – User Management",
+      "description": "Administrative endpoints for creating users and managing profiles.\n\n**Note:** Full CRUD for users is implemented in the service layer. These document the intended request shapes for frontend admin panels.",
+      "item": [
+        {
+          "name": "Create User",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"john.smith@example.com\",\n  \"password\": \"Secure@2024!\",\n  \"role\": \"patient\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/users",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "description": "Creates a new user account.\n\n**Roles:** `admin`\n\n**Available roles:**\n- `admin` — system administrators\n- `doctor` — attending physicians\n- `caregiver` — family members / nurses\n- `operator` — IoT bridge / device integration service accounts\n- `patient` — the monitored person\n\nPassword is bcrypt-hashed (cost 10) before storage."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "status": "Created",
+              "code": 201,
+              "body": "{\n  \"id\": \"ffff6666-0000-1111-2222-333333333333\",\n  \"email\": \"john.smith@example.com\",\n  \"role\": \"patient\",\n  \"is_active\": true,\n  \"created_at\": \"2026-03-08T22:45:00Z\"\n}"
+            },
+            {
+              "name": "409 Conflict – Email taken",
+              "status": "Conflict",
+              "code": 409,
+              "body": "{\n  \"error\": \"create user: pq: duplicate key value violates unique constraint \\\"users_email_key\\\"\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "💡 Environments & Variables",
+      "description": "Collection variables reference for frontend developers.\n\n| Variable | Set by | Description |\n|---|---|---|\n| `base_url` | Manual | Server URL (e.g. `http://localhost:8080`) |\n| `access_token` | Login test script | JWT Bearer token (auto-set) |\n| `user_id` | Login test script | Authenticated user UUID (auto-set) |\n| `protocol_id` | Create Protocol test script | Last created protocol UUID |\n| `device_id` | Manual | Registered dispenser device UUID |\n| `alert_id` | Get Alerts test script | First unread alert UUID |\n\n**Environments to create in Postman:**\n\n**Local:**\n```\nbase_url = http://localhost:8080\n```\n\n**Staging:**\n```\nbase_url = https://staging-api.smartbed.io\n```\n\n**Production:**\n```\nbase_url = https://api.smartbed.io\n```",
+      "item": []
+    }
+  ]
+}
