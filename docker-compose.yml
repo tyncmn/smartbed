@@ -1,0 +1,98 @@
+version: "3.9"
+
+services:
+  # ── PostgreSQL ────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: smartbed-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${DB_NAME:-smartbed}
+      POSTGRES_USER:     ${DB_USER:-smartbed}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-smartbed_secret}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-smartbed} -d ${DB_NAME:-smartbed}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ─────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: smartbed-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Mosquitto MQTT broker ─────────────────────────────────────────────────────
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: smartbed-mqtt
+    restart: unless-stopped
+    volumes:
+      - ./deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mqtt_data:/mosquitto/data
+      - mqtt_logs:/mosquitto/log
+    ports:
+      - "1883:1883"    # MQTT
+      - "9001:9001"    # WebSocket (for dashboard)
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-h", "localhost", "-p", "1883"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── SmartBed API server ───────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smartbed-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mqtt:
+        condition: service_healthy
+    environment:
+      APP_ENV:    ${APP_ENV:-production}
+      APP_PORT:   ${APP_PORT:-8080}
+      DB_HOST:    postgres
+      DB_PORT:    5432
+      DB_NAME:    ${DB_NAME:-smartbed}
+      DB_USER:    ${DB_USER:-smartbed}
+      DB_PASSWORD: ${DB_PASSWORD:-smartbed_secret}
+      DB_SSL_MODE: disable
+      REDIS_HOST:  redis
+      REDIS_PORT:  6379
+      MQTT_BROKER: tcp://mqtt:1883
+      MQTT_CLIENT_ID: smartbed-api
+      JWT_PRIVATE_KEY_PATH: /app/keys/private.pem
+      JWT_PUBLIC_KEY_PATH:  /app/keys/public.pem
+      MIGRATIONS_PATH: file:///app/migrations
+      LOG_LEVEL:  ${LOG_LEVEL:-info}
+      LOG_PRETTY: "false"
+    volumes:
+      - ./keys:/app/keys:ro
+    ports:
+      - "8080:8080"
+
+volumes:
+  postgres_data:
+  redis_data:
+  mqtt_data:
+  mqtt_logs:
