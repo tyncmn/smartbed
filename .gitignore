@@ -1,0 +1,17 @@
+# Secrets & keys — never commit these
+.env
+keys/
+
+# Go build output
+smartbed
+/bin/
+/dist/
+
+# Go test cache
+*.test
+*.out
+
+# OS
+.DS_Store
+Thumbs.db
+
