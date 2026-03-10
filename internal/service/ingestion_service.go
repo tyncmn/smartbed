@@ -36,9 +36,9 @@ type MetricsPayload struct {
 
 // IngestionResult summarizes what was created after ingestion.
 type IngestionResult struct {
-	IngestionID   uuid.UUID
-	VitalEventIDs []uuid.UUID
-	Duplicates    int
+	IngestionID   uuid.UUID   `json:"ingestion_id"`
+	VitalEventIDs []uuid.UUID `json:"vital_event_ids"`
+	Duplicates    int         `json:"duplicates"`
 }
 
 // IngestionService normalizes inbound payloads into time-series vital_events.

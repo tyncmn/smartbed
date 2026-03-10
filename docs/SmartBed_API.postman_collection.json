@@ -112,8 +112,8 @@
                   "pm.test('Accepted (202)', () => pm.expect(pm.response.code).to.equal(202));",
                   "if (pm.response.code === 202) {",
                   "    const json = pm.response.json();",
-                  "    pm.test('ingestion_id present', () => pm.expect(json.IngestionID).to.not.be.undefined);",
-                  "    console.log('Ingested vital events:', json.VitalEventIDs?.length);",
+                  "    pm.test('ingestion_id present', () => pm.expect(json.ingestion_id).to.not.be.undefined);",
+                  "    console.log('Ingested vital events:', json.vital_event_ids?.length);",
                   "}"
                 ]
               }
@@ -149,13 +149,13 @@
               "name": "202 Accepted",
               "status": "Accepted",
               "code": 202,
-              "body": "{\n  \"IngestionID\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n  \"VitalEventIDs\": [\n    \"11111111-1111-1111-1111-111111111111\",\n    \"22222222-2222-2222-2222-222222222222\",\n    \"33333333-3333-3333-3333-333333333333\"\n  ],\n  \"Duplicates\": 0\n}"
+              "body": "{\n  \"ingestion_id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n  \"vital_event_ids\": [\n    \"11111111-1111-1111-1111-111111111111\",\n    \"22222222-2222-2222-2222-222222222222\",\n    \"33333333-3333-3333-3333-333333333333\"\n  ],\n  \"duplicates\": 0\n}"
             },
             {
               "name": "202 Accepted – Partial (with duplicate)",
               "status": "Accepted",
               "code": 202,
-              "body": "{\n  \"IngestionID\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n  \"VitalEventIDs\": [\n    \"11111111-1111-1111-1111-111111111111\"\n  ],\n  \"Duplicates\": 2\n}"
+              "body": "{\n  \"ingestion_id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n  \"vital_event_ids\": [\n    \"11111111-1111-1111-1111-111111111111\"\n  ],\n  \"duplicates\": 2\n}"
             },
             {
               "name": "422 Unprocessable – Invalid payload",
@@ -674,9 +674,9 @@
                   "if (pm.response.code === 202) {",
                   "    const json = pm.response.json();",
                   "    pm.test('Command queued/published', () => {",
-                  "        pm.expect(['queued','published']).to.include(json.Status);",
+                  "        pm.expect(['queued','published']).to.include(json.status);",
                   "    });",
-                  "    console.log('Command ID:', json.ID, '| Status:', json.Status);",
+                  "    console.log('Command ID:', json.id, '| Status:', json.status);",
                   "}"
                 ]
               }
@@ -718,7 +718,7 @@
               "name": "202 Accepted – Published",
               "status": "Accepted",
               "code": 202,
-              "body": "{\n  \"ID\": \"eeee5555-ffff-0000-1111-222222222222\",\n  \"DeviceID\": \"{{device_id}}\",\n  \"ProtocolID\": null,\n  \"IssuedBy\": \"{{user_id}}\",\n  \"CommandType\": \"dispense\",\n  \"Payload\": \"{\\\"medication\\\":\\\"melatonin_3mg\\\",\\\"dose_units\\\":1}\",\n  \"Status\": \"published\",\n  \"PublishedAt\": \"2026-03-08T22:45:10Z\",\n  \"AcknowledgedAt\": null,\n  \"ExecutedAt\": null,\n  \"TimeoutAt\": \"2026-03-08T22:45:40Z\",\n  \"CreatedAt\": \"2026-03-08T22:45:10Z\"\n}"
+              "body": "{\n  \"id\": \"eeee5555-ffff-0000-1111-222222222222\",\n  \"device_id\": \"{{device_id}}\",\n  \"protocol_id\": null,\n  \"issued_by\": \"{{user_id}}\",\n  \"command_type\": \"dispense\",\n  \"payload\": \"{\\\"medication\\\":\\\"melatonin_3mg\\\",\\\"dose_units\\\":1}\",\n  \"status\": \"published\",\n  \"published_at\": \"2026-03-08T22:45:10Z\",\n  \"acknowledged_at\": null,\n  \"executed_at\": null,\n  \"timeout_at\": \"2026-03-08T22:45:40Z\",\n  \"created_at\": \"2026-03-08T22:45:10Z\"\n}"
             },
             {
               "name": "400 Bad Request – Device offline",
