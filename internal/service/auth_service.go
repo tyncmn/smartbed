@@ -39,6 +39,7 @@ type TokenPair struct {
 	ExpiresAt    time.Time   `json:"expires_at"`
 	UserID       uuid.UUID   `json:"user_id"`
 	Role         domain.Role `json:"role"`
+	User         domain.User `json:"user"`
 }
 
 // Login validates credentials and returns a JWT token pair.
@@ -73,6 +74,7 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest) (*TokenPair, 
 		ExpiresAt:    time.Now().Add(time.Hour),
 		UserID:       user.ID,
 		Role:         user.Role,
+		User:         user,
 	}, nil
 }
 
