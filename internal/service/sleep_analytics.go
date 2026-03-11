@@ -119,12 +119,12 @@ func (s *SleepAnalyticsService) CreateOrUpdateSession(ctx context.Context, userI
 
 // SleepSummary holds aggregated sleep stats over a period.
 type SleepSummary struct {
-	UserID          uuid.UUID `db:"user_id"`
-	AvgQualityScore float64   `db:"avg_quality_score"`
-	AvgDurationMins float64   `db:"avg_duration_minutes"`
-	TotalNights     int       `db:"total_nights"`
-	DisturbedNights int       `db:"disturbed_nights"`
-	PeriodDays      int
+	UserID          uuid.UUID `db:"user_id"            json:"user_id"`
+	AvgQualityScore float64   `db:"avg_quality_score"  json:"avg_quality_score"`
+	AvgDurationMins float64   `db:"avg_duration_minutes" json:"avg_duration_mins"`
+	TotalNights     int       `db:"total_nights"       json:"total_nights"`
+	DisturbedNights int       `db:"disturbed_nights"   json:"disturbed_nights"`
+	PeriodDays      int       `json:"period_days"`
 }
 
 // GetSleepSummary returns an aggregated sleep summary for the last N days.

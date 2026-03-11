@@ -117,7 +117,7 @@ func main() {
 
 	// ── 9. Wire handlers ──────────────────────────────────────────────────────
 	authHandler := handler.NewAuthHandler(authSvc)
-	vitalsHandler := handler.NewVitalsHandler(ingestionSvc)
+	vitalsHandler := handler.NewVitalsHandler(ingestionSvc, sleepSvc)
 	alertHandler := handler.NewAlertHandler(alertSvc)
 	dashboardHandler := handler.DashboardHandlerWithDeps(sleepSvc, alertSvc)
 	protocolHandler := handler.NewProtocolHandler(protocolSvc, auditLogger)
@@ -162,6 +162,15 @@ func main() {
 			auth.POST("/vitals/ingest",
 				middleware.RequireRoles(middleware.RoleOperatorAll()...),
 				vitalsHandler.Ingest,
+			)
+			// Vitals read (live polling + sleep summary)
+			auth.GET("/vitals/latest",
+				middleware.RequireRoles(middleware.RoleClinicalAll()...),
+				vitalsHandler.GetLatestVitals,
+			)
+			auth.GET("/vitals/sleep-summary",
+				middleware.RequireRoles(middleware.RoleClinicalAll()...),
+				vitalsHandler.GetVitalsSleepSummary,
 			)
 
 			// Alerts

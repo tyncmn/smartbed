@@ -152,6 +152,49 @@ func (s *IngestionService) upsertVitalEvent(
 	return insertedID, isDuplicate, nil
 }
 
+// LatestVitals holds the most recent value per metric type for a user.
+type LatestVitals struct {
+	UserID    uuid.UUID             `json:"user_id"`
+	Metrics   map[string]VitalPoint `json:"metrics"`
+	FetchedAt time.Time             `json:"fetched_at"`
+}
+
+// VitalPoint is a single metric reading with its timestamp.
+type VitalPoint struct {
+	Value      float64   `json:"value"`
+	RecordedAt time.Time `json:"recorded_at"`
+}
+
+// GetLatestVitals returns the most recent value for each metric type for the given user.
+func (s *IngestionService) GetLatestVitals(ctx context.Context, userID uuid.UUID) (*LatestVitals, error) {
+	type row struct {
+		MetricType string    `db:"metric_type"`
+		Value      float64   `db:"value"`
+		SourceTS   time.Time `db:"source_timestamp"`
+	}
+	var rows []row
+	err := s.db.SelectContext(ctx, &rows, `
+		SELECT DISTINCT ON (metric_type)
+			metric_type, value, source_timestamp
+		FROM vital_events
+		WHERE user_id = $1
+		ORDER BY metric_type, source_timestamp DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get latest vitals: %w", err)
+	}
+	metrics := make(map[string]VitalPoint, len(rows))
+	for _, r := range rows {
+		metrics[r.MetricType] = VitalPoint{Value: r.Value, RecordedAt: r.SourceTS}
+	}
+	return &LatestVitals{
+		UserID:    userID,
+		Metrics:   metrics,
+		FetchedAt: time.Now().UTC(),
+	}, nil
+}
+
 // extractMetrics converts the payload DTO into a typed map.
 func (s *IngestionService) extractMetrics(m MetricsPayload) map[domain.MetricType]float64 {
 	result := map[domain.MetricType]float64{}
