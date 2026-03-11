@@ -154,6 +154,7 @@ func main() {
 	{
 		// ── Auth (public) ──────────────────────────────────────────────────
 		v1.POST("/auth/login", authHandler.Login)
+		v1.POST("/auth/refresh", authHandler.Refresh)
 
 		// ── Authenticated routes ───────────────────────────────────────────
 		auth := v1.Group("", jwtSvc.Authenticate())

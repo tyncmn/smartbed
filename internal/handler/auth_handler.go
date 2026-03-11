@@ -49,3 +49,31 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, pair)
 }
+
+// Refresh godoc
+// @Summary      Refresh access token
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body body service.RefreshRequest true "Refresh token"
+// @Success      200  {object} service.TokenPair
+// @Failure      400  {object} map[string]string
+// @Failure      401  {object} map[string]string
+// @Router       /api/v1/auth/refresh [post]
+func (h *AuthHandler) Refresh(c *gin.Context) {
+	var req service.RefreshRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := validate.Struct(req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	pair, err := h.authSvc.RefreshTokens(c.Request.Context(), req)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, pair)
+}

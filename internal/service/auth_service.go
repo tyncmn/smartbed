@@ -78,6 +78,50 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest) (*TokenPair, 
 	}, nil
 }
 
+// RefreshRequest is the DTO for token refresh.
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token" validate:"required"`
+}
+
+// RefreshTokens validates a refresh token and issues a new token pair.
+func (s *AuthService) RefreshTokens(ctx context.Context, req RefreshRequest) (*TokenPair, error) {
+	claims, err := s.jwtService.ParseToken(req.RefreshToken)
+	if err != nil {
+		return nil, fmt.Errorf("invalid refresh token: %w", err)
+	}
+	if claims.Issuer != "smartbed-refresh" {
+		return nil, fmt.Errorf("invalid refresh token: wrong issuer")
+	}
+
+	var user domain.User
+	if err := s.db.GetContext(ctx, &user, `
+		SELECT id, email, password_hash, role, is_active FROM users WHERE id=$1`, claims.UserID,
+	); err != nil {
+		return nil, fmt.Errorf("user not found")
+	}
+	if !user.IsActive {
+		return nil, fmt.Errorf("account is deactivated")
+	}
+
+	accessToken, err := s.jwtService.GenerateAccessToken(user.ID, user.Role)
+	if err != nil {
+		return nil, fmt.Errorf("generate access token: %w", err)
+	}
+	refreshToken, err := s.jwtService.GenerateRefreshToken(user.ID, user.Role)
+	if err != nil {
+		return nil, fmt.Errorf("generate refresh token: %w", err)
+	}
+
+	return &TokenPair{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresAt:    time.Now().Add(time.Hour),
+		UserID:       user.ID,
+		Role:         user.Role,
+		User:         user,
+	}, nil
+}
+
 // HashPassword creates a bcrypt hash of a plaintext password.
 func HashPassword(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
