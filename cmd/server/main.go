@@ -102,6 +102,17 @@ func main() {
 	sleepSvc := service.NewSleepAnalyticsService(sqlDB)
 	authSvc := service.NewAuthService(sqlDB, jwtSvc)
 
+	// AI analysis is optional — enabled only when OPENAI_API_KEY is set.
+	var aiSvc *service.AIAnalysisService
+	if cfg.OpenAI.APIKey != "" {
+		aiSvc = service.NewAIAnalysisService(sqlDB, cfg.OpenAI.APIKey, cfg.OpenAI.Model)
+		log.Info().Str("model", cfg.OpenAI.Model).Msg("AI analysis enabled")
+	} else {
+		log.Warn().Msg("OPENAI_API_KEY not set — AI analysis disabled")
+	}
+
+	dashboardSvc := service.NewSleepDashboardService(sqlDB, sleepSvc, alertSvc, aiSvc)
+
 	var deviceSvc *service.DeviceCommandService
 	if mqttClient != nil {
 		deviceSvc = service.NewDeviceCommandService(sqlDB, mqttClient, cfg.MQTT.ACKTimeoutSec)
@@ -121,6 +132,7 @@ func main() {
 	alertHandler := handler.NewAlertHandler(alertSvc)
 	dashboardHandler := handler.DashboardHandlerWithDeps(sleepSvc, alertSvc)
 	protocolHandler := handler.NewProtocolHandler(protocolSvc, auditLogger)
+	sleepHandler := handler.NewSleepHandler(dashboardSvc)
 
 	var deviceHandler *handler.DeviceHandler
 	if deviceSvc != nil {
@@ -192,6 +204,11 @@ func main() {
 			auth.GET("/users/:id/sleep-summary",
 				middleware.RequireRoles(middleware.RoleClinicalAll()...),
 				dashboardHandler.GetSleepSummary,
+			)
+			// Sleep Analytics Dashboard (single comprehensive endpoint)
+			auth.GET("/users/:id/sleep-dashboard",
+				middleware.RequireRoles(middleware.RoleClinicalAll()...),
+				sleepHandler.GetSleepDashboard,
 			)
 
 			// Protocols (doctors only)

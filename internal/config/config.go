@@ -19,6 +19,14 @@ type Config struct {
 	JWT      JWTConfig
 	Log      LogConfig
 	Seed     SeedConfig
+	OpenAI   OpenAIConfig
+}
+
+// OpenAIConfig holds optional OpenAI integration settings.
+// Leave OPENAI_API_KEY blank to disable AI analysis.
+type OpenAIConfig struct {
+	APIKey string
+	Model  string
 }
 
 // AppConfig holds general server settings.
@@ -31,15 +39,15 @@ type AppConfig struct {
 
 // DatabaseConfig holds PostgreSQL connection settings.
 type DatabaseConfig struct {
-	Host                string
-	Port                string
-	Name                string
-	User                string
-	Password            string
-	SSLMode             string
-	MaxOpenConns        int
-	MaxIdleConns        int
-	ConnMaxLifetime     time.Duration
+	Host            string
+	Port            string
+	Name            string
+	User            string
+	Password        string
+	SSLMode         string
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
 }
 
 // RedisConfig holds Redis connection settings.
@@ -52,20 +60,20 @@ type RedisConfig struct {
 
 // MQTTConfig holds MQTT broker settings.
 type MQTTConfig struct {
-	Broker           string
-	ClientID         string
-	Username         string
-	Password         string
-	QOS              byte
-	ACKTimeoutSec    int
+	Broker        string
+	ClientID      string
+	Username      string
+	Password      string
+	QOS           byte
+	ACKTimeoutSec int
 }
 
 // JWTConfig holds JWT signing settings.
 type JWTConfig struct {
-	PrivateKeyPath          string
-	PublicKeyPath           string
-	AccessTokenExpiryMins   int
-	RefreshTokenExpiryDays  int
+	PrivateKeyPath         string
+	PublicKeyPath          string
+	AccessTokenExpiryMins  int
+	RefreshTokenExpiryDays int
 }
 
 // LogConfig holds logging settings.
@@ -141,6 +149,10 @@ func Load() (*Config, error) {
 			AdminEmail:    getEnv("SEED_ADMIN_EMAIL", "admin@smartbed.local"),
 			AdminPassword: getEnv("SEED_ADMIN_PASSWORD", "Admin@2024!"),
 		},
+		OpenAI: OpenAIConfig{
+			APIKey: getEnv("OPENAI_API_KEY", ""),
+			Model:  getEnv("OPENAI_MODEL", "gpt-4o-mini"),
+		},
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -165,9 +177,9 @@ func (c *Config) RedisAddr() string {
 
 func (c *Config) validate() error {
 	required := map[string]string{
-		"DB_NAME":       c.Database.Name,
-		"DB_USER":       c.Database.User,
-		"DB_PASSWORD":   c.Database.Password,
+		"DB_NAME":              c.Database.Name,
+		"DB_USER":              c.Database.User,
+		"DB_PASSWORD":          c.Database.Password,
 		"JWT_PRIVATE_KEY_PATH": c.JWT.PrivateKeyPath,
 		"JWT_PUBLIC_KEY_PATH":  c.JWT.PublicKeyPath,
 	}
